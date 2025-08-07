@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/parse-spss.py": {
+      "maxDuration": 10
+    }
+  }
+}
