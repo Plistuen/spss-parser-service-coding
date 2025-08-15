@@ -7,7 +7,6 @@ import tempfile
 import os
 import gc
 import traceback
-
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
@@ -69,26 +68,43 @@ class handler(BaseHTTPRequestHandler):
                     technical = ['id', 'respondent', 'starttid', 'sluttid', 'respid', 'panel', 'weight']
                     if not any(t in col.lower() for t in technical):
                         samples = df[col].dropna().head(10).tolist()
+                        # Count actual non-blank responses (excluding empty strings and whitespace)
+                        non_blank_responses = df[col].dropna().astype(str).str.strip().replace('', pd.NA).notna().sum()
+                        # Count unique responses including blanks for proper calculation
+                        unique_responses = df[col].nunique(dropna=False)
                         result['metadata']['openTextQuestions'].append({
                             'variableName': col,
                             'questionText': var_info['label'],
                             'sampleResponses': samples,
-                            'uniqueResponses': int(df[col].nunique()),
-                            'totalResponses': int(df[col].notna().sum())
+                            'uniqueResponses': int(unique_responses),
+                            'totalResponses': int(non_blank_responses)
                         })
             
-            # Add sample data (first 1000 rows for Pro version)
-            sample_size = min(1000, len(df))
-            for idx in range(sample_size):
-                row = df.iloc[idx]
-                record = {}
-                for col in df.columns:
-                    val = row[col]
-                    if pd.isna(val):
-                        record[col] = None
-                    else:
-                        record[col] = val if isinstance(val, str) else float(val)
-                result['data'].append(record)
+            # Add complete data for all respondents (up to 100k with memory optimization)
+            total_rows = len(df)
+            result['metadata']['totalRows'] = total_rows
+            
+            # Memory-efficient processing for large files
+            chunk_size = 5000 if total_rows > 50000 else 1000
+            
+            for start_idx in range(0, total_rows, chunk_size):
+                end_idx = min(start_idx + chunk_size, total_rows)
+                chunk = df.iloc[start_idx:end_idx]
+                
+                for idx in range(len(chunk)):
+                    row = chunk.iloc[idx]
+                    record = {}
+                    for col in df.columns:
+                        val = row[col]
+                        if pd.isna(val):
+                            record[col] = None
+                        else:
+                            record[col] = val if isinstance(val, str) else float(val)
+                    result['data'].append(record)
+                
+                # Memory cleanup for large files
+                if total_rows > 10000:
+                    gc.collect()
             
             # Clean up
             os.unlink(tmp_path)
